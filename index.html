@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Speed Reader - Read faster with RSVP technique. Display text one word at a time for efficient reading.">
+    <meta name="keywords" content="speed reading, RSVP, rapid reading, reading app">
+    <meta property="og:title" content="Speed Reader App">
+    <meta property="og:description" content="Read faster with RSVP technique">
+    <meta property="og:type" content="website">
+    <title>Speed Reader - RSVP Reading App</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <!-- PDF.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <!-- Main Container -->
+    <div id="app" class="app-container">
+
+        <!-- Header -->
+        <header class="app-header">
+            <h1 class="app-title">⚡ Speed Reader</h1>
+            <button id="settingsBtn" class="settings-btn" aria-label="Settings">⚙️</button>
+        </header>
+
+        <!-- Input Section -->
+        <section id="inputSection" class="input-section">
+            <div class="input-container">
+                <h2>Enter Your Text</h2>
+
+                <!-- Text Input -->
+                <textarea
+                    id="textInput"
+                    class="text-input"
+                    placeholder="Paste your text here or upload a file..."
+                    aria-label="Text input for speed reading"
+                ></textarea>
+
+                <div class="input-meta">
+                    <span id="charCounter" class="char-counter">0 characters</span>
+                    <button id="clearBtn" class="btn btn-secondary">Clear</button>
+                </div>
+
+                <!-- File Upload -->
+                <div class="file-upload-section">
+                    <label for="fileInput" class="file-label">
+                        📁 Upload File (.txt or .pdf)
+                    </label>
+                    <input
+                        type="file"
+                        id="fileInput"
+                        accept=".txt,.pdf"
+                        class="file-input"
+                        aria-label="Upload text or PDF file"
+                    >
+                    <div id="uploadStatus" class="upload-status"></div>
+                </div>
+
+                <!-- Start Button -->
+                <button id="startBtn" class="btn btn-primary btn-large">
+                    Start Reading
+                </button>
+            </div>
+        </section>
+
+        <!-- Reading Section -->
+        <section id="readingSection" class="reading-section hidden">
+            <!-- Reading Display Area -->
+            <div class="reading-display">
+                <div id="focusGuide" class="focus-guide hidden"></div>
+                <div id="wordDisplay" class="word-display" aria-live="polite"></div>
+            </div>
+
+            <!-- Progress Bar -->
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+                <div class="progress-info">
+                    <span id="progressText">Word 0 / 0</span>
+                    <span id="timeRemaining">Time: 0:00</span>
+                </div>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="control-panel">
+                <!-- Speed Control -->
+                <div class="speed-control">
+                    <label for="speedSlider" class="control-label">
+                        Speed: <span id="speedValue">300</span> WPM
+                    </label>
+                    <input
+                        type="range"
+                        id="speedSlider"
+                        class="speed-slider"
+                        min="200"
+                        max="1000"
+                        step="50"
+                        value="300"
+                        aria-label="Reading speed control"
+                    >
+                </div>
+
+                <!-- Playback Controls -->
+                <div class="playback-controls">
+                    <button id="playBtn" class="control-btn" aria-label="Play">
+                        ▶️
+                    </button>
+                    <button id="pauseBtn" class="control-btn hidden" aria-label="Pause">
+                        ⏸️
+                    </button>
+                    <button id="resetBtn" class="control-btn" aria-label="Reset">
+                        ↺
+                    </button>
+                    <button id="exitBtn" class="control-btn" aria-label="Exit to input">
+                        ❌
+                    </button>
+                </div>
+
+                <!-- Keyboard Shortcuts Info -->
+                <div class="keyboard-hints">
+                    <small>
+                        <kbd>Space</kbd> Play/Pause •
+                        <kbd>←</kbd><kbd>→</kbd> Speed •
+                        <kbd>R</kbd> Reset •
+                        <kbd>Esc</kbd> Exit
+                    </small>
+                </div>
+            </div>
+        </section>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Settings</h2>
+                    <button id="closeSettingsBtn" class="close-btn" aria-label="Close settings">✕</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Theme Toggle -->
+                    <div class="setting-item">
+                        <label for="themeToggle" class="setting-label">Theme</label>
+                        <div class="toggle-container">
+                            <span>Light</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="themeToggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span>Dark</span>
+                        </div>
+                    </div>
+
+                    <!-- Font Size -->
+                    <div class="setting-item">
+                        <label for="fontSizeSlider" class="setting-label">
+                            Reading Font Size: <span id="fontSizeValue">40</span>px
+                        </label>
+                        <input
+                            type="range"
+                            id="fontSizeSlider"
+                            min="24"
+                            max="72"
+                            value="40"
+                            step="4"
+                        >
+                    </div>
+
+                    <!-- Focus Guide -->
+                    <div class="setting-item">
+                        <label class="setting-label">
+                            <input type="checkbox" id="focusGuideToggle">
+                            Show Focus Guide
+                        </label>
+                    </div>
+
+                    <!-- Punctuation Pause -->
+                    <div class="setting-item">
+                        <label for="punctuationPause" class="setting-label">
+                            Sentence Pause: <span id="pauseValue">200</span>ms
+                        </label>
+                        <input
+                            type="range"
+                            id="punctuationPause"
+                            min="0"
+                            max="500"
+                            value="200"
+                            step="50"
+                        >
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Toast -->
+        <div id="errorToast" class="error-toast hidden">
+            <span id="errorMessage"></span>
+        </div>
+    </div>
+
+    <!-- JavaScript Modules -->
+    <script src="js/parser.js"></script>
+    <script src="js/reader.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

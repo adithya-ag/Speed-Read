@@ -34,9 +34,13 @@ class SpeedReaderApp {
 
             // Reading
             wordDisplay: document.getElementById('wordDisplay'),
+            previousWord: document.getElementById('previousWord'),
+            nextWord: document.getElementById('nextWord'),
             focusGuide: document.getElementById('focusGuide'),
+            progressBar: document.getElementById('progressBar'),
             progressFill: document.getElementById('progressFill'),
             progressText: document.getElementById('progressText'),
+            progressTooltip: document.getElementById('progressTooltip'),
             timeRemaining: document.getElementById('timeRemaining'),
 
             // Controls
@@ -46,6 +50,8 @@ class SpeedReaderApp {
             pauseBtn: document.getElementById('pauseBtn'),
             resetBtn: document.getElementById('resetBtn'),
             exitBtn: document.getElementById('exitBtn'),
+            skipBackBtn: document.getElementById('skipBackBtn'),
+            skipForwardBtn: document.getElementById('skipForwardBtn'),
 
             // Settings
             settingsBtn: document.getElementById('settingsBtn'),
@@ -58,9 +64,13 @@ class SpeedReaderApp {
             punctuationPause: document.getElementById('punctuationPause'),
             pauseValue: document.getElementById('pauseValue'),
 
-            // Error toast
+            // Toasts and modals
             errorToast: document.getElementById('errorToast'),
-            errorMessage: document.getElementById('errorMessage')
+            errorMessage: document.getElementById('errorMessage'),
+            skipToast: document.getElementById('skipToast'),
+            skipMessage: document.getElementById('skipMessage'),
+            keyboardHelpModal: document.getElementById('keyboardHelpModal'),
+            closeKeyboardHelpBtn: document.getElementById('closeKeyboardHelpBtn')
         };
 
         this.init();
@@ -74,6 +84,50 @@ class SpeedReaderApp {
         this.applySettings();
         this.setupEventListeners();
         this.updateCharCounter();
+
+        // Initialize Supabase Auth
+        if (typeof SupabaseClient !== 'undefined') {
+            SupabaseClient.init();
+            this.setupAuthListeners();
+        }
+    }
+
+    /**
+     * Setup Auth listeners
+     */
+    setupAuthListeners() {
+        const authBtn = document.getElementById('authBtn');
+
+        // Button Click
+        authBtn.addEventListener('click', async () => {
+            if (SupabaseClient.user) {
+                await SupabaseClient.signOut();
+            } else {
+                await SupabaseClient.signInWithGoogle();
+            }
+        });
+
+        // Auth State Change
+        window.addEventListener('auth:change', (e) => {
+            this.handleAuthChange(e.detail.user);
+        });
+    }
+
+    /**
+     * Handle Auth State Change
+     */
+    handleAuthChange(user) {
+        const authBtn = document.getElementById('authBtn');
+        authBtn.classList.remove('hidden'); // Show button now that auth is ready
+
+        if (user) {
+            authBtn.textContent = 'Sign Out';
+            authBtn.title = `Signed in as ${user.email}`;
+            // Potential: Load user library here
+        } else {
+            authBtn.textContent = 'Sign In';
+            authBtn.title = 'Sign is with Google';
+        }
     }
 
     /**
@@ -118,6 +172,29 @@ class SpeedReaderApp {
             this.exitToInput();
         });
 
+        // Skip controls
+        this.elements.skipBackBtn.addEventListener('click', () => {
+            this.skip(-10);
+        });
+
+        this.elements.skipForwardBtn.addEventListener('click', () => {
+            this.skip(10);
+        });
+
+        // Progress bar click
+        this.elements.progressBar.addEventListener('click', (e) => {
+            this.handleProgressBarClick(e);
+        });
+
+        // Progress bar hover
+        this.elements.progressBar.addEventListener('mousemove', (e) => {
+            this.handleProgressBarHover(e);
+        });
+
+        this.elements.progressBar.addEventListener('mouseleave', () => {
+            this.elements.progressTooltip.classList.add('hidden');
+        });
+
         // Settings
         this.elements.settingsBtn.addEventListener('click', () => {
             this.openSettings();
@@ -147,6 +224,17 @@ class SpeedReaderApp {
 
         this.elements.punctuationPause.addEventListener('input', (e) => {
             this.setPunctuationPause(parseInt(e.target.value));
+        });
+
+        // Keyboard help modal
+        this.elements.closeKeyboardHelpBtn.addEventListener('click', () => {
+            this.closeKeyboardHelp();
+        });
+
+        this.elements.keyboardHelpModal.addEventListener('click', (e) => {
+            if (e.target === this.elements.keyboardHelpModal) {
+                this.closeKeyboardHelp();
+            }
         });
 
         // Keyboard shortcuts
@@ -242,10 +330,22 @@ class SpeedReaderApp {
     }
 
     /**
-     * Display current word
+     * Display current word with context (previous and next)
      */
     displayWord(word) {
         this.elements.wordDisplay.textContent = word;
+
+        // Trigger pulse animation
+        this.elements.wordDisplay.classList.remove('pulse');
+        void this.elements.wordDisplay.offsetWidth; // Trigger reflow
+        this.elements.wordDisplay.classList.add('pulse');
+
+        // Update context words if reader exists
+        if (this.reader) {
+            const context = this.reader.getContextWords();
+            this.elements.previousWord.textContent = context.previous;
+            this.elements.nextWord.textContent = context.next;
+        }
     }
 
     /**
@@ -351,7 +451,7 @@ class SpeedReaderApp {
         // Only handle shortcuts when in reading section
         if (!this.elements.readingSection.classList.contains('hidden')) {
             // Prevent default for shortcuts
-            if ([' ', 'ArrowLeft', 'ArrowRight', 'r', 'R', 'Escape'].includes(e.key)) {
+            if ([' ', 'ArrowLeft', 'ArrowRight', 'r', 'R', 'j', 'J', 'l', 'L', 'Escape', '?'].includes(e.key)) {
                 e.preventDefault();
             }
 
@@ -363,6 +463,18 @@ class SpeedReaderApp {
                     } else {
                         this.play();
                     }
+                    break;
+
+                case 'j':
+                case 'J':
+                    // J: Skip back 10 words
+                    this.skip(-10);
+                    break;
+
+                case 'l':
+                case 'L':
+                    // L: Skip forward 10 words
+                    this.skip(10);
                     break;
 
                 case 'ArrowLeft':
@@ -385,6 +497,11 @@ class SpeedReaderApp {
                     this.reset();
                     break;
 
+                case '?':
+                    // ?: Show keyboard help
+                    this.showKeyboardHelp();
+                    break;
+
                 case 'Escape':
                     // Escape: Exit to input
                     this.exitToInput();
@@ -392,10 +509,92 @@ class SpeedReaderApp {
             }
         }
 
-        // Settings modal close with Escape
-        if (e.key === 'Escape' && !this.elements.settingsModal.classList.contains('hidden')) {
-            this.closeSettings();
+        // Modal closes with Escape
+        if (e.key === 'Escape') {
+            if (!this.elements.settingsModal.classList.contains('hidden')) {
+                this.closeSettings();
+            }
+            if (!this.elements.keyboardHelpModal.classList.contains('hidden')) {
+                this.closeKeyboardHelp();
+            }
         }
+    }
+
+    /**
+     * Skip forward or backward by word count
+     */
+    skip(wordCount) {
+        if (!this.reader) return;
+
+        const wordsSkipped = this.reader.skip(wordCount);
+
+        // Visual feedback
+        const direction = wordCount > 0 ? '+' : '';
+        this.showSkipFeedback(`${direction}${Math.abs(wordCount)} words`);
+
+        // Button animation
+        const button = wordCount > 0 ? this.elements.skipForwardBtn : this.elements.skipBackBtn;
+        button.classList.add('skip-active');
+        setTimeout(() => {
+            button.classList.remove('skip-active');
+        }, 200);
+    }
+
+    /**
+     * Handle progress bar click to jump to position
+     */
+    handleProgressBarClick(e) {
+        if (!this.reader) return;
+
+        const rect = this.elements.progressBar.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+        const targetIndex = Math.floor(percentage * this.words.length);
+
+        this.reader.jumpToWord(targetIndex);
+    }
+
+    /**
+     * Handle progress bar hover to show tooltip
+     */
+    handleProgressBarHover(e) {
+        if (!this.reader) return;
+
+        const rect = this.elements.progressBar.getBoundingClientRect();
+        const hoverX = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, hoverX / rect.width));
+        const wordIndex = Math.floor(percentage * this.words.length);
+
+        // Position and show tooltip
+        this.elements.progressTooltip.style.left = `${hoverX}px`;
+        this.elements.progressTooltip.textContent = `Word ${wordIndex} / ${this.words.length}`;
+        this.elements.progressTooltip.classList.remove('hidden');
+    }
+
+    /**
+     * Show skip feedback toast
+     */
+    showSkipFeedback(message) {
+        this.elements.skipMessage.textContent = message;
+        this.elements.skipToast.classList.remove('hidden');
+
+        setTimeout(() => {
+            this.elements.skipToast.classList.add('hidden');
+        }, 800);
+    }
+
+    /**
+     * Show keyboard shortcuts help
+     */
+    showKeyboardHelp() {
+        this.elements.keyboardHelpModal.classList.remove('hidden');
+    }
+
+    /**
+     * Close keyboard shortcuts help
+     */
+    closeKeyboardHelp() {
+        this.elements.keyboardHelpModal.classList.add('hidden');
     }
 
     /**

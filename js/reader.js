@@ -156,6 +156,30 @@ class SpeedReader {
     }
 
     /**
+     * Skip forward or backward by number of words
+     * @param {number} wordCount - Number of words to skip (positive or negative)
+     * @returns {number} - Actual words skipped
+     */
+    skip(wordCount) {
+        const newIndex = Math.max(0, Math.min(this.currentIndex + wordCount, this.words.length - 1));
+        const actualWordsSkipped = newIndex - this.currentIndex;
+        this.jumpToWord(newIndex);
+        return actualWordsSkipped;
+    }
+
+    /**
+     * Get previous, current, and next words for context
+     * @returns {Object} - Object with previous, current, next words
+     */
+    getContextWords() {
+        return {
+            previous: this.currentIndex > 0 ? this.words[this.currentIndex - 1] : '',
+            current: this.currentIndex < this.words.length ? this.words[this.currentIndex] : '',
+            next: this.currentIndex < this.words.length - 1 ? this.words[this.currentIndex + 1] : ''
+        };
+    }
+
+    /**
      * Get current state
      */
     getState() {

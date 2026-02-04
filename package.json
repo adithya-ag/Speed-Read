@@ -1,0 +1,11 @@
+{
+    "name": "speed-reader",
+    "version": "1.0.0",
+    "description": "Speed Reader Application",
+    "scripts": {
+        "start": "npx serve ."
+    },
+    "keywords": [],
+    "author": "",
+    "license": "MIT"
+}

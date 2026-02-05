@@ -9,6 +9,10 @@ class SpeedReaderApp {
         this.reader = null;
         this.words = [];
 
+        // Double-tap tracking
+        this._lastTap = 0;
+        this._lastTapX = 0;
+
         // Settings with defaults
         this.settings = {
             wpm: 300,
@@ -33,6 +37,7 @@ class SpeedReaderApp {
             startBtn: document.getElementById('startBtn'),
 
             // Reading
+            readingDisplay: document.querySelector('.reading-display'),
             wordDisplay: document.getElementById('wordDisplay'),
             previousWord: document.getElementById('previousWord'),
             nextWord: document.getElementById('nextWord'),
@@ -240,6 +245,32 @@ class SpeedReaderApp {
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             this.handleKeyboard(e);
+        });
+
+        // Tap/click on reading display to play/pause
+        this.elements.readingDisplay.addEventListener('click', (e) => {
+            this.handleReadingDisplayClick(e);
+        });
+
+        // Click on previous word to jump back
+        this.elements.previousWord.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (this.reader && this.reader.currentIndex > 0) {
+                this.reader.jumpToWord(this.reader.currentIndex - 1);
+            }
+        });
+
+        // Click on next word to jump forward
+        this.elements.nextWord.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (this.reader && this.reader.currentIndex < this.words.length - 1) {
+                this.reader.jumpToWord(this.reader.currentIndex + 1);
+            }
+        });
+
+        // Double-tap on reading display to skip 10 words
+        this.elements.readingDisplay.addEventListener('touchend', (e) => {
+            this.handleDoubleTap(e);
         });
     }
 
@@ -538,6 +569,53 @@ class SpeedReaderApp {
         setTimeout(() => {
             button.classList.remove('skip-active');
         }, 200);
+    }
+
+    /**
+     * Handle click on reading display to toggle play/pause
+     */
+    handleReadingDisplayClick(e) {
+        if (!this.reader) return;
+
+        // Don't toggle if clicking on context words (they have their own handlers)
+        if (e.target.closest('.context-word')) return;
+
+        if (this.reader.isPlaying) {
+            this.pause();
+        } else {
+            this.play();
+        }
+    }
+
+    /**
+     * Handle double-tap on reading display to skip 10 words
+     */
+    handleDoubleTap(e) {
+        if (!this.reader) return;
+
+        const now = Date.now();
+        const timeSinceLastTap = now - this._lastTap;
+
+        if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
+            // Double tap detected
+            e.preventDefault();
+
+            const rect = this.elements.readingDisplay.getBoundingClientRect();
+            const tapX = this._lastTapX;
+            const midpoint = rect.left + rect.width / 2;
+
+            if (tapX < midpoint) {
+                this.skip(-10);
+            } else {
+                this.skip(10);
+            }
+
+            this._lastTap = 0; // Reset to prevent triple-tap
+            return;
+        }
+
+        this._lastTap = now;
+        this._lastTapX = e.changedTouches[0].clientX;
     }
 
     /**

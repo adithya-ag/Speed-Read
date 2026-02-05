@@ -10,7 +10,8 @@
     <meta property="og:title" content="Speed Reader App">
     <meta property="og:description" content="Read faster with RSVP technique">
     <meta property="og:type" content="website">
-    <title>Speed Reader - RSVP Reading App</title>
+    <title>Speed Read - RSVP Reading App</title>
+    <link rel="icon" type="image/png" href="assets/logo/SpeedReadFavicon.png">
     <link rel="stylesheet" href="css/styles.css">
     <!-- PDF.js Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -22,7 +23,10 @@
 
         <!-- Header -->
         <header class="app-header">
-            <h1 class="app-title">⚡ Speed Reader</h1>
+            <div class="app-brand">
+                <img src="assets/logo/SpeedReadFavicon.png" alt="Speed Read" class="app-logo">
+                <h1 class="app-title">Speed Read</h1>
+            </div>
             <div class="header-actions">
                 <button id="authBtn" class="btn btn-secondary auth-btn hidden">Sign In</button>
                 <button id="settingsBtn" class="settings-btn" aria-label="Settings">⚙️</button>
@@ -91,52 +95,46 @@
                 <div id="progressTooltip" class="progress-tooltip hidden"></div>
             </div>
 
-            <!-- Control Panel -->
-            <div class="control-panel">
-                <!-- Speed Control -->
-                <div class="speed-control">
-                    <label for="speedSlider" class="control-label">
-                        Speed: <span id="speedValue">300</span> WPM
-                    </label>
-                    <input type="range" id="speedSlider" class="speed-slider" min="200" max="1000" step="50" value="300"
-                        aria-label="Reading speed control">
+            <!-- Control Footer -->
+            <div class="control-footer">
+                <!-- Row 1: Playback Controls -->
+                <div class="footer-controls">
+                    <button id="exitBtn" class="back-btn" aria-label="Back to input" title="Back to input">
+                        <span class="back-arrow">&#8592;</span> Back
+                    </button>
+
+                    <div class="playback-controls">
+                        <button id="skipBackBtn" class="ctrl-btn" aria-label="Skip back 10 words" title="Skip back 10 words">
+                            &#9194; <span class="skip-label">-10</span>
+                        </button>
+                        <button id="playBtn" class="ctrl-btn ctrl-play" aria-label="Play">&#9654;</button>
+                        <button id="pauseBtn" class="ctrl-btn ctrl-play hidden" aria-label="Pause">&#9208;</button>
+                        <button id="resetBtn" class="ctrl-btn" aria-label="Reset" title="Reset to beginning">&#8634;</button>
+                        <button id="skipForwardBtn" class="ctrl-btn" aria-label="Skip forward 10 words" title="Skip forward 10 words">
+                            <span class="skip-label">+10</span> &#9193;
+                        </button>
+                    </div>
+
+                    <div class="speed-inline">
+                        <input type="range" id="speedSlider" class="speed-slider-sm" min="200" max="1000" step="50" value="300"
+                            aria-label="Reading speed">
+                        <span class="speed-label"><span id="speedValue">300</span> WPM</span>
+                    </div>
                 </div>
 
-                <!-- Playback Controls -->
-                <div class="playback-controls">
-                    <button id="skipBackBtn" class="control-btn skip-btn" aria-label="Skip back 10 words"
-                        title="Skip back 10 words (J)">
-                        <span class="skip-icon">⏪</span>
-                        <span class="skip-label">-10</span>
-                    </button>
-                    <button id="resetBtn" class="control-btn" aria-label="Reset">
-                        ↺
-                    </button>
-                    <button id="playBtn" class="control-btn play-pause-btn" aria-label="Play">
-                        ▶️
-                    </button>
-                    <button id="pauseBtn" class="control-btn play-pause-btn hidden" aria-label="Pause">
-                        ⏸️
-                    </button>
-                    <button id="exitBtn" class="control-btn" aria-label="Exit to input">
-                        ❌
-                    </button>
-                    <button id="skipForwardBtn" class="control-btn skip-btn" aria-label="Skip forward 10 words"
-                        title="Skip forward 10 words (L)">
-                        <span class="skip-icon">⏩</span>
-                        <span class="skip-label">+10</span>
-                    </button>
+                <!-- Row 2: Keyboard Shortcuts (desktop only) -->
+                <div class="keyboard-hints desktop-only">
+                    <kbd>Space</kbd> Play/Pause &middot;
+                    <kbd>J</kbd><kbd>L</kbd> Skip &middot;
+                    <kbd>&#8592;</kbd><kbd>&#8594;</kbd> Speed &middot;
+                    <kbd>?</kbd> Help
                 </div>
 
-                <!-- Keyboard Shortcuts Info -->
-                <div class="keyboard-hints">
-                    <small>
-                        <kbd>Space</kbd> Play/Pause •
-                        <kbd>J</kbd><kbd>L</kbd> Skip •
-                        <kbd>←</kbd><kbd>→</kbd> Speed •
-                        <kbd>?</kbd> Help
-                    </small>
-                </div>
+                <!-- Divider -->
+                <div class="footer-divider"></div>
+
+                <!-- Row 3: Tagline -->
+                <div class="footer-tagline">Designed for reading 2 - 3x faster</div>
             </div>
         </section>
 

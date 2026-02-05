@@ -22,7 +22,7 @@ class SpeedReader {
 
     /**
      * Calculate delay for current word (in milliseconds)
-     * Adds extra pause for punctuation
+     * Adds extra pause for punctuation and long words
      */
     getWordDelay() {
         const baseDelay = 60000 / this.wpm;
@@ -32,17 +32,24 @@ class SpeedReader {
             return baseDelay;
         }
 
+        let delay = baseDelay;
+
+        // Extra time for long words (8+ characters)
+        if (currentWord.length >= 8) {
+            delay += baseDelay * 0.4;
+        }
+
         // Check for sentence-ending punctuation
         if (/[.!?]$/.test(currentWord)) {
-            return baseDelay + this.punctuationPause;
+            return delay + this.punctuationPause;
         }
 
         // Check for comma or semicolon
         if (/[,;:]$/.test(currentWord)) {
-            return baseDelay + (this.punctuationPause / 2);
+            return delay + (this.punctuationPause / 2);
         }
 
-        return baseDelay;
+        return delay;
     }
 
     /**

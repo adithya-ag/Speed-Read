@@ -1,0 +1,22 @@
+{
+    "name": "Speed Read - RSVP Reading App",
+    "short_name": "Speed Read",
+    "description": "Read faster with RSVP technique. Display text one word at a time for efficient reading.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f5f5f5",
+    "theme_color": "#6366f1",
+    "orientation": "portrait-primary",
+    "icons": [
+        {
+            "src": "assets/logo/SpeedReadFavicon.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "assets/logo/logoSpeedRead.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

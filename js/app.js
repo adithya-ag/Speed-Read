@@ -7,8 +7,6 @@ class SpeedReaderApp {
     constructor() {
         // State
         this.reader = null;
-        // State
-        this.reader = null;
         this.words = [];
         this.currentDocId = null;
         this.progressSaveTimeout = null;
@@ -28,8 +26,6 @@ class SpeedReaderApp {
 
         // DOM Elements
         this.elements = {
-            // Sections
-            inputSection: document.getElementById('inputSection'),
             // Sections
             inputSection: document.getElementById('inputSection'),
             librarySection: document.getElementById('librarySection'),
@@ -93,17 +89,35 @@ class SpeedReaderApp {
     /**
      * Initialize the application
      */
-    init() {
+    async init() {
         this.loadSettings();
         this.applySettings();
         this.setupEventListeners();
         this.updateCharCounter();
 
-        // Initialize Supabase Auth
+        // Initialize local database first (source of truth)
+        if (typeof DB !== 'undefined') {
+            await DB.init();
+            await this.recoverFromCrash();
+        }
+
+        // Always show library (works without sign-in)
+        this.elements.librarySection.classList.remove('hidden');
+        this.loadLibrary();
+
+        // Initialize Supabase Auth (optional sync layer)
         if (typeof SupabaseClient !== 'undefined') {
             SupabaseClient.init();
             this.setupAuthListeners();
         }
+
+        // Load stats dashboard
+        if (typeof StatsEngine !== 'undefined') {
+            await this.refreshStats();
+        }
+
+        // Check for stale documents
+        this.checkStaleDocuments();
     }
 
     /**
@@ -130,20 +144,21 @@ class SpeedReaderApp {
     /**
      * Handle Auth State Change
      */
-    handleAuthChange(user) {
+    async handleAuthChange(user) {
         const authBtn = document.getElementById('authBtn');
         authBtn.classList.remove('hidden'); // Show button now that auth is ready
 
         if (user) {
             authBtn.textContent = 'Sign Out';
             authBtn.title = `Signed in as ${user.email}`;
-            this.elements.librarySection.classList.remove('hidden');
-            this.loadLibrary();
+            // Sync with Supabase if available
+            if (typeof SyncManager !== 'undefined') {
+                await SyncManager.syncAll();
+            }
+            this.loadLibrary(); // Refresh after sync
         } else {
             authBtn.textContent = 'Sign In';
             authBtn.title = 'Sign in with Google';
-            this.elements.librarySection.classList.add('hidden');
-            this.currentDocId = null;
         }
     }
 
@@ -248,6 +263,29 @@ class SpeedReaderApp {
             this.setPunctuationPause(parseInt(e.target.value));
         });
 
+        // Export/Import
+        const exportBtn = document.getElementById('exportBtn');
+        const importBtn = document.getElementById('importBtn');
+        const importFileInput = document.getElementById('importFileInput');
+        if (exportBtn) exportBtn.addEventListener('click', () => this.exportLibrary());
+        if (importBtn) importBtn.addEventListener('click', () => importFileInput.click());
+        if (importFileInput) importFileInput.addEventListener('change', (e) => this.importLibrary(e));
+
+        // Streak Freeze
+        const streakFreezeBtn = document.getElementById('streakFreezeBtn');
+        if (streakFreezeBtn) {
+            streakFreezeBtn.addEventListener('click', async () => {
+                if (typeof DB !== 'undefined' && DB.db) {
+                    await DB.activateStreakFreeze();
+                    if (typeof SupabaseClient !== 'undefined' && SupabaseClient.user) {
+                        await SupabaseClient.saveUserStats({ streak_freeze_active: true, streak_freeze_used_at: new Date() });
+                    }
+                    streakFreezeBtn.style.display = 'none';
+                    this.showSkipFeedback('Streak frozen! Documents safe for 14 days.');
+                }
+            });
+        }
+
         // Keyboard help modal
         this.elements.closeKeyboardHelpBtn.addEventListener('click', () => {
             this.closeKeyboardHelp();
@@ -288,6 +326,17 @@ class SpeedReaderApp {
         // Double-tap on reading display to skip 10 words
         this.elements.readingDisplay.addEventListener('touchend', (e) => {
             this.handleDoubleTap(e);
+        });
+
+        // Crash protection: save progress on tab close/hide
+        window.addEventListener('beforeunload', () => {
+            this.saveProgressImmediate();
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                this.saveProgressImmediate();
+            }
         });
     }
 
@@ -330,17 +379,32 @@ class SpeedReaderApp {
             this.elements.uploadStatus.textContent = `✓ Loaded ${words.length} words from ${file.name}`;
             this.elements.uploadStatus.style.color = 'var(--success-color)';
 
-            // Auto-save if logged in
-            if (SupabaseClient.user) {
-                this.elements.uploadStatus.textContent += ' (Saving...)';
-                const { data, error } = await SupabaseClient.saveDocument(file.name, text);
-                if (data) {
-                    this.currentDocId = data.id;
-                    this.elements.uploadStatus.textContent = `✓ Saved to Library`;
-                    this.loadLibrary(); // Refresh list associated
-                } else {
-                    console.error('Save failed:', error);
+            // Always save to local IndexedDB
+            if (typeof DB !== 'undefined' && DB.db) {
+                const wordHash = await generateWordHash(text);
+                const doc = {
+                    id: crypto.randomUUID(),
+                    title: file.name,
+                    content: text,
+                    wordHash: wordHash,
+                    totalWords: words.length,
+                    bookmarkIndex: 0,
+                    source: 'upload',
+                    createdAt: new Date().toISOString(),
+                    lastReadAt: new Date().toISOString(),
+                    supabaseId: null
+                };
+                await DB.saveDocument(doc);
+                this.currentDocId = doc.id;
+                this.elements.uploadStatus.textContent = `✓ Saved to Library`;
+
+                // Sync metadata to Supabase if signed in
+                if (typeof SyncManager !== 'undefined' && SupabaseClient.user) {
+                    await SyncManager.syncDocument(doc);
                 }
+
+                this.loadLibrary();
+                this.showUploadNotice();
             }
 
         } catch (error) {
@@ -353,7 +417,7 @@ class SpeedReaderApp {
     /**
      * Start reading session
      */
-    startReading() {
+    async startReading() {
         const text = this.elements.textInput.value.trim();
 
         if (!text) {
@@ -367,6 +431,27 @@ class SpeedReaderApp {
         if (this.words.length === 0) {
             this.showError('No valid words found in the text');
             return;
+        }
+
+        // Auto-save pasted text as a document if no doc is loaded
+        if (!this.currentDocId && typeof DB !== 'undefined' && DB.db) {
+            const wordHash = await generateWordHash(text);
+            const firstWords = this.words.slice(0, 5).join(' ');
+            const title = firstWords + (this.words.length > 5 ? '...' : '');
+            const doc = {
+                id: crypto.randomUUID(),
+                title: title,
+                content: text,
+                wordHash: wordHash,
+                totalWords: this.words.length,
+                bookmarkIndex: 0,
+                source: 'paste',
+                createdAt: new Date().toISOString(),
+                lastReadAt: new Date().toISOString(),
+                supabaseId: null
+            };
+            await DB.saveDocument(doc);
+            this.currentDocId = doc.id;
         }
 
         // Create reader instance
@@ -435,6 +520,11 @@ class SpeedReaderApp {
         this.reader.play();
         this.elements.playBtn.classList.add('hidden');
         this.elements.pauseBtn.classList.remove('hidden');
+
+        // Start stats session
+        if (typeof StatsEngine !== 'undefined') {
+            StatsEngine.startSession(this.reader.currentIndex);
+        }
     }
 
     /**
@@ -446,6 +536,16 @@ class SpeedReaderApp {
         this.reader.pause();
         this.elements.pauseBtn.classList.add('hidden');
         this.elements.playBtn.classList.remove('hidden');
+
+        // Save progress immediately on pause
+        if (this.currentDocId && typeof DB !== 'undefined' && DB.db) {
+            DB.updateProgress(this.currentDocId, this.reader.currentIndex);
+        }
+
+        // End stats session
+        if (typeof StatsEngine !== 'undefined') {
+            StatsEngine.endSession(this.reader.currentIndex, this.settings.wpm);
+        }
     }
 
     /**
@@ -464,17 +564,29 @@ class SpeedReaderApp {
      */
     exitToInput() {
         if (this.reader) {
+            // End stats session if active
+            if (typeof StatsEngine !== 'undefined') {
+                StatsEngine.endSession(this.reader.currentIndex, this.settings.wpm);
+            }
+            this.saveProgressImmediate();
             this.reader.destroy();
             this.reader = null;
         }
 
         this.showInputSection();
+        this.loadLibrary();
     }
 
     /**
      * Handle reading completion
      */
-    onReadingComplete() {
+    async onReadingComplete() {
+        // End stats session and mark as completed
+        if (typeof StatsEngine !== 'undefined') {
+            await StatsEngine.endSession(this.words.length, this.settings.wpm, true);
+            this.refreshStats();
+        }
+
         this.elements.wordDisplay.textContent = '✓ Complete!';
         this.elements.pauseBtn.classList.add('hidden');
         this.elements.playBtn.classList.remove('hidden');
@@ -823,21 +935,18 @@ class SpeedReaderApp {
     }
 
     /**
-     * Load Library Documents
+     * Load Library Documents (from local IndexedDB)
      */
     async loadLibrary() {
-        if (!SupabaseClient.user) return;
-
         this.elements.documentList.innerHTML = '<div class="empty-state">Loading library...</div>';
 
-        const { data, error } = await SupabaseClient.getDocuments();
-
-        if (error) {
-            this.elements.documentList.innerHTML = `<div class="empty-state error">Error loading library</div>`;
+        if (typeof DB === 'undefined' || !DB.db) {
+            this.elements.documentList.innerHTML = '<div class="empty-state">Upload a file or paste text to get started!</div>';
             return;
         }
 
-        this.renderLibrary(data || []);
+        const documents = await DB.getAllDocuments();
+        this.renderLibrary(documents);
     }
 
     /**
@@ -845,7 +954,7 @@ class SpeedReaderApp {
      */
     renderLibrary(documents) {
         if (!documents || documents.length === 0) {
-            this.elements.documentList.innerHTML = '<div class="empty-state">No documents found. Upload one!</div>';
+            this.elements.documentList.innerHTML = '<div class="empty-state">No documents yet. Upload a file or paste text to get started!</div>';
             return;
         }
 
@@ -855,20 +964,28 @@ class SpeedReaderApp {
             const el = document.createElement('div');
             el.className = 'doc-item';
 
-            const progress = doc.total_words > 0
-                ? Math.round((doc.bookmark_index / doc.total_words) * 100)
+            const progress = doc.totalWords > 0
+                ? Math.round((doc.bookmarkIndex / doc.totalWords) * 100)
                 : 0;
 
             el.innerHTML = `
-                <div class="doc-title">${doc.title || 'Untitled'}</div>
-                <div class="doc-meta">
-                    <span class="progress-badge">${progress}% Complete</span>
-                    <span>${new Date(doc.created_at).toLocaleDateString()}</span>
+                <div class="doc-info">
+                    <div class="doc-title">${doc.title || 'Untitled'}</div>
+                    <div class="doc-meta">
+                        <span class="progress-badge">${progress}%</span>
+                        <span>${new Date(doc.createdAt).toLocaleDateString()}</span>
+                    </div>
                 </div>
+                <button class="doc-delete-btn" title="Delete document" aria-label="Delete ${doc.title}">&times;</button>
             `;
 
-            el.addEventListener('click', () => {
+            el.querySelector('.doc-info').addEventListener('click', () => {
                 this.openDocument(doc);
+            });
+
+            el.querySelector('.doc-delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.confirmDeleteDocument(doc);
             });
 
             this.elements.documentList.appendChild(el);
@@ -878,37 +995,316 @@ class SpeedReaderApp {
     /**
      * Open a document from library
      */
-    openDocument(doc) {
+    async openDocument(doc) {
         this.elements.textInput.value = doc.content;
         this.updateCharCounter();
         this.currentDocId = doc.id;
 
-        // Start reading immediately or just load? Let's just load.
-        // But maybe restore bookmark?
-        this.startReading();
+        await this.startReading();
 
         // Restore bookmark after reader init
-        if (this.reader && doc.bookmark_index > 0) {
-            // Small delay to ensure reader is ready
+        if (this.reader && doc.bookmarkIndex > 0) {
             setTimeout(() => {
-                this.reader.jumpToWord(doc.bookmark_index);
-                this.showSkipFeedback(`Resumed at word ${doc.bookmark_index}`);
+                this.reader.jumpToWord(doc.bookmarkIndex);
+                this.showSkipFeedback(`Resumed at word ${doc.bookmarkIndex}`);
                 this.pause(); // Start paused
             }, 100);
         }
     }
 
     /**
-     * Save Progress (Debounced)
+     * Save Progress (Debounced) — saves locally always, syncs to Supabase if signed in
      */
     saveProgressDebounced(docId, index, total) {
         if (this.progressSaveTimeout) {
             clearTimeout(this.progressSaveTimeout);
         }
 
-        this.progressSaveTimeout = setTimeout(() => {
-            SupabaseClient.saveProgress(docId, index, total);
-        }, 2000); // Save every 2 seconds of inactivity or continuous reading
+        this.progressSaveTimeout = setTimeout(async () => {
+            // Always save locally
+            if (typeof DB !== 'undefined' && DB.db) {
+                await DB.updateProgress(docId, index);
+            }
+
+            // Sync to Supabase if signed in and document is synced
+            if (typeof SupabaseClient !== 'undefined' && SupabaseClient.user) {
+                const doc = await DB.getDocument(docId);
+                if (doc && doc.supabaseId) {
+                    SupabaseClient.saveProgress(doc.supabaseId, index, total);
+                }
+            }
+        }, 2000);
+    }
+
+    // ========== CRASH PROTECTION ==========
+
+    /**
+     * Save progress immediately (for beforeunload/visibilitychange)
+     */
+    saveProgressImmediate() {
+        if (!this.reader || !this.currentDocId) return;
+
+        if (this.progressSaveTimeout) {
+            clearTimeout(this.progressSaveTimeout);
+            this.progressSaveTimeout = null;
+        }
+
+        // Stash in localStorage as crash buffer (sync-safe for beforeunload)
+        const progressData = {
+            docId: this.currentDocId,
+            index: this.reader.currentIndex,
+            total: this.words.length,
+            timestamp: Date.now()
+        };
+        localStorage.setItem('speedReader_crashBuffer', JSON.stringify(progressData));
+
+        // Also try async save (may not complete on beforeunload)
+        if (typeof DB !== 'undefined' && DB.db) {
+            DB.updateProgress(this.currentDocId, this.reader.currentIndex);
+        }
+    }
+
+    /**
+     * Recover progress from crash buffer on app init
+     */
+    async recoverFromCrash() {
+        const buffer = localStorage.getItem('speedReader_crashBuffer');
+        if (!buffer) return;
+
+        try {
+            const { docId, index, timestamp } = JSON.parse(buffer);
+            // Only recover if less than 1 hour old
+            if (Date.now() - timestamp < 3600000 && typeof DB !== 'undefined' && DB.db) {
+                await DB.updateProgress(docId, index);
+            }
+        } catch (e) {
+            console.warn('Crash recovery failed:', e);
+        }
+
+        localStorage.removeItem('speedReader_crashBuffer');
+    }
+
+    // ========== DELETE DOCUMENT ==========
+
+    /**
+     * Confirm and delete a document
+     */
+    async confirmDeleteDocument(doc) {
+        const confirmed = await this.showConfirmDialog(
+            'Delete Document',
+            `Are you sure you want to delete "${doc.title}"? This cannot be undone.`
+        );
+
+        if (confirmed) {
+            await DB.deleteDocument(doc.id);
+            if (doc.supabaseId && typeof SupabaseClient !== 'undefined' && SupabaseClient.user) {
+                await SupabaseClient.deleteDocument(doc.supabaseId);
+            }
+            if (this.currentDocId === doc.id) {
+                this.currentDocId = null;
+            }
+            this.loadLibrary();
+            this.showSkipFeedback('Document deleted');
+        }
+    }
+
+    /**
+     * Show a confirmation dialog, returns Promise<boolean>
+     */
+    showConfirmDialog(title, message) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('confirmModal');
+            const titleEl = document.getElementById('confirmTitle');
+            const msgEl = document.getElementById('confirmMessage');
+            const cancelBtn = document.getElementById('confirmCancelBtn');
+            const okBtn = document.getElementById('confirmOkBtn');
+
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            modal.classList.remove('hidden');
+
+            const cleanup = () => {
+                modal.classList.add('hidden');
+                cancelBtn.removeEventListener('click', onCancel);
+                okBtn.removeEventListener('click', onConfirm);
+            };
+
+            const onCancel = () => { cleanup(); resolve(false); };
+            const onConfirm = () => { cleanup(); resolve(true); };
+
+            cancelBtn.addEventListener('click', onCancel);
+            okBtn.addEventListener('click', onConfirm);
+        });
+    }
+
+    // ========== UPLOAD NOTICE ==========
+
+    /**
+     * Show upload policy notice (7-day cleanup warning)
+     */
+    showUploadNotice() {
+        if (localStorage.getItem('speedReader_uploadNoticeDismissed') === 'true') return;
+
+        let banner = document.getElementById('uploadNoticeBanner');
+        if (banner) return; // Already showing
+
+        banner = document.createElement('div');
+        banner.id = 'uploadNoticeBanner';
+        banner.className = 'notice-banner';
+        banner.innerHTML = `
+            <div class="notice-content">
+                <strong>Heads up:</strong> If you sign in, documents synced to our servers are automatically
+                cleaned up after 7 days of inactivity. Use <strong>Streak Freeze</strong> to extend to 14 days.
+                Your files are always safe locally on this device.
+                <label class="notice-dismiss">
+                    <input type="checkbox" id="dontShowAgainCheck">
+                    Understood, don't show this again
+                </label>
+            </div>
+            <button class="notice-close" aria-label="Close notice">&times;</button>
+        `;
+
+        this.elements.inputSection.prepend(banner);
+
+        banner.querySelector('.notice-close').addEventListener('click', () => {
+            if (document.getElementById('dontShowAgainCheck').checked) {
+                localStorage.setItem('speedReader_uploadNoticeDismissed', 'true');
+            }
+            banner.remove();
+        });
+    }
+
+    // ========== STALE DOCUMENT CHECK ==========
+
+    /**
+     * Check for documents not read in 7+ days and show cleanup banner
+     */
+    async checkStaleDocuments() {
+        if (typeof DB === 'undefined' || !DB.db) return;
+
+        const docs = await DB.getAllDocuments();
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const staleDocs = docs.filter(d => new Date(d.lastReadAt) < sevenDaysAgo);
+        if (staleDocs.length === 0) return;
+
+        // Don't show if already dismissed this session
+        if (sessionStorage.getItem('speedReader_staleBannerDismissed')) return;
+
+        const banner = document.createElement('div');
+        banner.className = 'notice-banner stale-banner';
+        banner.innerHTML = `
+            <div class="notice-content">
+                You have <strong>${staleDocs.length}</strong> document${staleDocs.length > 1 ? 's' : ''}
+                unread for over a week. Want to clean up?
+            </div>
+            <div class="notice-actions">
+                <button class="btn btn-secondary btn-small" id="staleDismissBtn">Keep</button>
+                <button class="btn btn-danger btn-small" id="staleCleanBtn">Clean Up</button>
+            </div>
+        `;
+
+        this.elements.inputSection.prepend(banner);
+
+        document.getElementById('staleDismissBtn').addEventListener('click', () => {
+            sessionStorage.setItem('speedReader_staleBannerDismissed', 'true');
+            banner.remove();
+        });
+
+        document.getElementById('staleCleanBtn').addEventListener('click', async () => {
+            for (const doc of staleDocs) {
+                await DB.deleteDocument(doc.id);
+                if (doc.supabaseId && typeof SupabaseClient !== 'undefined' && SupabaseClient.user) {
+                    await SupabaseClient.deleteDocument(doc.supabaseId);
+                }
+            }
+            banner.remove();
+            this.loadLibrary();
+            this.showSkipFeedback(`Cleaned up ${staleDocs.length} document${staleDocs.length > 1 ? 's' : ''}`);
+        });
+    }
+
+    // ========== STATS DASHBOARD ==========
+
+    /**
+     * Refresh the stats dashboard display
+     */
+    async refreshStats() {
+        if (typeof StatsEngine === 'undefined') return;
+
+        const stats = await StatsEngine.getDisplayStats();
+        const streakEl = document.getElementById('streakValue');
+        const todayEl = document.getElementById('wordsReadTodayValue');
+        const totalEl = document.getElementById('totalWordsValue');
+        const avgWpmEl = document.getElementById('avgWpmValue');
+        const docsEl = document.getElementById('docsCompletedValue');
+        const freezeBtn = document.getElementById('streakFreezeBtn');
+
+        if (streakEl) streakEl.textContent = stats.currentStreak;
+        if (todayEl) todayEl.textContent = this.formatNumber(stats.wordsReadToday);
+        if (totalEl) totalEl.textContent = this.formatNumber(stats.totalWordsRead);
+        if (avgWpmEl) avgWpmEl.textContent = stats.averageWpm;
+        if (docsEl) docsEl.textContent = stats.documentsCompleted;
+        if (freezeBtn) {
+            freezeBtn.style.display = stats.streakFreezeActive ? 'none' : 'inline-block';
+        }
+    }
+
+    /**
+     * Format large numbers (e.g., 1234 → "1,234")
+     */
+    formatNumber(num) {
+        if (!num) return '0';
+        return num.toLocaleString();
+    }
+
+    // ========== EXPORT / IMPORT ==========
+
+    /**
+     * Export library as JSON download
+     */
+    async exportLibrary() {
+        if (typeof DB === 'undefined' || !DB.db) return;
+
+        const data = await DB.exportAll();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `speed-reader-backup-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showSkipFeedback('Library exported!');
+    }
+
+    /**
+     * Import library from JSON file
+     */
+    async importLibrary(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+
+            const confirmed = await this.showConfirmDialog(
+                'Import Library',
+                `This will merge ${data.documents?.length || 0} documents and stats into your library. Continue?`
+            );
+
+            if (confirmed) {
+                await DB.importAll(data);
+                this.loadLibrary();
+                await this.refreshStats();
+                this.showSkipFeedback('Library imported!');
+            }
+        } catch (err) {
+            this.showError('Invalid backup file: ' + err.message);
+        }
+
+        e.target.value = ''; // Reset file input
     }
 
     /**

@@ -1,6 +1,6 @@
 /**
  * SUPABASE CLIENT WRAPPER
- * Handles all backend interactions
+ * Handles authentication and cloud sync (metadata only, no content)
  */
 
 const SupabaseClient = {
@@ -39,7 +39,6 @@ const SupabaseClient = {
      */
     updateUser(user) {
         this.user = user;
-        // Trigger generic event for App to listen to
         window.dispatchEvent(new CustomEvent('auth:change', { detail: { user } }));
     },
 
@@ -65,37 +64,37 @@ const SupabaseClient = {
         return await this.client.auth.signOut();
     },
 
+    // ========== DOCUMENTS (metadata only) ==========
+
     /**
-     * Get All Documents for User
+     * Get All Documents for User (metadata only, no content)
      */
     async getDocuments() {
         if (!this.client) return { error: 'Not initialized' };
 
         const { data, error } = await this.client
             .from('documents')
-            .select('*')
+            .select('id, title, word_hash, total_words, bookmark_index, created_at, last_read_at, content')
             .order('last_read_at', { ascending: false });
 
         return { data, error };
     },
 
     /**
-     * Save/Upload a new Document
+     * Save document metadata (no content stored remotely)
      */
-    async saveDocument(title, content) {
+    async saveDocument(title, wordHash, totalWords, bookmarkIndex) {
         if (!this.user || !this.client) return { error: 'Not logged in' };
 
         const { data, error } = await this.client
             .from('documents')
-            .insert([
-                {
-                    user_id: this.user.id,
-                    title: title || 'Untitled',
-                    content: content,
-                    total_words: content.split(/\s+/).length, // simple count
-                    bookmark_index: 0
-                }
-            ])
+            .insert([{
+                user_id: this.user.id,
+                title: title || 'Untitled',
+                word_hash: wordHash,
+                total_words: totalWords,
+                bookmark_index: bookmarkIndex || 0
+            }])
             .select()
             .single();
 
@@ -103,8 +102,22 @@ const SupabaseClient = {
     },
 
     /**
+     * Find document by word hash (for cross-device matching)
+     */
+    async getDocumentByHash(wordHash) {
+        if (!this.client) return { data: null, error: 'Not initialized' };
+
+        const { data, error } = await this.client
+            .from('documents')
+            .select('id, title, word_hash, total_words, bookmark_index, created_at, last_read_at')
+            .eq('word_hash', wordHash)
+            .single();
+
+        return { data, error };
+    },
+
+    /**
      * Save Reading Progress
-     * Debounced in App, but here handles the DB call
      */
     async saveProgress(docId, wordIndex, totalWords) {
         if (!this.user || !this.client || !docId) return;
@@ -134,5 +147,71 @@ const SupabaseClient = {
             .eq('id', docId);
 
         return { error };
+    },
+
+    // ========== USER STATS ==========
+
+    /**
+     * Get user stats (streak, lifetime)
+     */
+    async getUserStats() {
+        if (!this.user || !this.client) return { data: null, error: 'Not logged in' };
+
+        const { data, error } = await this.client
+            .from('user_stats')
+            .select('*')
+            .eq('user_id', this.user.id)
+            .single();
+
+        return { data, error };
+    },
+
+    /**
+     * Save/update user stats (upsert)
+     */
+    async saveUserStats(stats) {
+        if (!this.user || !this.client) return { error: 'Not logged in' };
+
+        const { data, error } = await this.client
+            .from('user_stats')
+            .upsert({
+                user_id: this.user.id,
+                ...stats,
+                updated_at: new Date()
+            }, { onConflict: 'user_id' });
+
+        return { data, error };
+    },
+
+    /**
+     * Save a reading session record
+     */
+    async saveReadingSession(session) {
+        if (!this.user || !this.client) return { error: 'Not logged in' };
+
+        const { data, error } = await this.client
+            .from('reading_sessions')
+            .insert([{
+                user_id: this.user.id,
+                ...session
+            }]);
+
+        return { data, error };
+    },
+
+    /**
+     * Get recent reading sessions
+     */
+    async getRecentSessions(limit = 7) {
+        if (!this.user || !this.client) return { data: null, error: 'Not logged in' };
+
+        const { data, error } = await this.client
+            .from('reading_sessions')
+            .select('*')
+            .eq('user_id', this.user.id)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        return { data, error };
     }
 };

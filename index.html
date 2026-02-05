@@ -12,6 +12,11 @@
     <meta property="og:type" content="website">
     <title>Speed Read - RSVP Reading App</title>
     <link rel="icon" type="image/png" href="assets/logo/SpeedReadFavicon.png">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="assets/logo/SpeedReadFavicon.png">
     <link rel="stylesheet" href="css/styles.css">
     <!-- PDF.js Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -34,10 +39,15 @@
         </header>
 
         <!-- Input Section -->
-        <section id="inputSection" class="input-section">
+        <section id="inputSection" class="input-section" style="flex: 1;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    flex-direction: column;
+    justify-content: center;">
 
-            <!-- Library Section (Only for logged in users) -->
-            <div id="librarySection" class="library-container hidden">
+            <!-- Library Section (works for everyone, syncs when signed in) -->
+            <div id="librarySection" class="library-container">
                 <div class="library-header">
                     <h2>Your Library</h2>
                     <button id="refreshLibraryBtn" class="icon-btn" title="Refresh">↻</button>
@@ -47,6 +57,36 @@
                     <div class="empty-state">Loading documents...</div>
                 </div>
                 <div class="divider"><span>OR ADD NEW</span></div>
+            </div>
+
+            <!-- Stats Dashboard -->
+            <div id="statsSection" class="stats-dashboard">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">&#128293;</div>
+                        <div class="stat-value" id="streakValue">0</div>
+                        <div class="stat-label">Day Streak</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="wordsReadTodayValue">0</div>
+                        <div class="stat-label">Words Today</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalWordsValue">0</div>
+                        <div class="stat-label">Lifetime Words</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="avgWpmValue">0</div>
+                        <div class="stat-label">Avg WPM (7d)</div>
+                    </div>
+                </div>
+                <div class="stats-actions">
+                    <span><span id="docsCompletedValue">0</span> docs completed</span>
+                    <button id="streakFreezeBtn" class="btn btn-secondary btn-small"
+                        title="Freeze your streak for 7 extra days">
+                        &#10052; Freeze Streak
+                    </button>
+                </div>
             </div>
 
             <div class="input-container">
@@ -199,6 +239,16 @@
                         </label>
                         <input type="range" id="punctuationPause" min="0" max="500" value="200" step="50">
                     </div>
+
+                    <!-- Data Management -->
+                    <div class="setting-item">
+                        <label class="setting-label">Data Management</label>
+                        <div class="data-actions">
+                            <button id="exportBtn" class="btn btn-secondary">Export Library (JSON)</button>
+                            <button id="importBtn" class="btn btn-secondary">Import Library</button>
+                            <input type="file" id="importFileInput" accept=".json" class="hidden">
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -258,18 +308,48 @@
                 </div>
             </div>
         </div>
+
+        <!-- Confirm Dialog Modal -->
+        <div id="confirmModal" class="modal hidden">
+            <div class="modal-content modal-small">
+                <div class="modal-header">
+                    <h2 id="confirmTitle">Confirm</h2>
+                </div>
+                <div class="modal-body">
+                    <p id="confirmMessage"></p>
+                    <div class="confirm-actions">
+                        <button id="confirmCancelBtn" class="btn btn-secondary">Cancel</button>
+                        <button id="confirmOkBtn" class="btn btn-danger">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then(reg => console.log('SW registered:', reg.scope))
+                .catch(err => console.warn('SW registration failed:', err));
+        }
+    </script>
 
     <!-- JavaScript Modules -->
     <!-- Supabase Core -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- IndexedDB wrapper -->
+    <script src="https://cdn.jsdelivr.net/npm/idb@8/build/umd.js"></script>
 
     <!-- App Scripts -->
     <script src="js/config.js"></script>
+    <script src="js/db.js"></script>
     <script src="js/supabase-client.js"></script>
+    <script src="js/sync.js"></script>
 
     <script src="js/parser.js"></script>
     <script src="js/reader.js"></script>
+    <script src="js/stats.js"></script>
     <script src="js/app.js"></script>
 </body>
 

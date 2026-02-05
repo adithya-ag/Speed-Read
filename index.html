@@ -35,6 +35,20 @@
 
         <!-- Input Section -->
         <section id="inputSection" class="input-section">
+
+            <!-- Library Section (Only for logged in users) -->
+            <div id="librarySection" class="library-container hidden">
+                <div class="library-header">
+                    <h2>Your Library</h2>
+                    <button id="refreshLibraryBtn" class="icon-btn" title="Refresh">↻</button>
+                </div>
+                <div id="documentList" class="document-list">
+                    <!-- Documents will be injected here -->
+                    <div class="empty-state">Loading documents...</div>
+                </div>
+                <div class="divider"><span>OR ADD NEW</span></div>
+            </div>
+
             <div class="input-container">
                 <h2>Enter Your Text</h2>
 
@@ -104,20 +118,23 @@
                     </button>
 
                     <div class="playback-controls">
-                        <button id="skipBackBtn" class="ctrl-btn" aria-label="Skip back 10 words" title="Skip back 10 words">
+                        <button id="skipBackBtn" class="ctrl-btn" aria-label="Skip back 10 words"
+                            title="Skip back 10 words">
                             &#9194; <span class="skip-label">-10</span>
                         </button>
                         <button id="playBtn" class="ctrl-btn ctrl-play" aria-label="Play">&#9654;</button>
                         <button id="pauseBtn" class="ctrl-btn ctrl-play hidden" aria-label="Pause">&#9208;</button>
-                        <button id="resetBtn" class="ctrl-btn" aria-label="Reset" title="Reset to beginning">&#8634;</button>
-                        <button id="skipForwardBtn" class="ctrl-btn" aria-label="Skip forward 10 words" title="Skip forward 10 words">
+                        <button id="resetBtn" class="ctrl-btn" aria-label="Reset"
+                            title="Reset to beginning">&#8634;</button>
+                        <button id="skipForwardBtn" class="ctrl-btn" aria-label="Skip forward 10 words"
+                            title="Skip forward 10 words">
                             <span class="skip-label">+10</span> &#9193;
                         </button>
                     </div>
 
                     <div class="speed-inline">
-                        <input type="range" id="speedSlider" class="speed-slider-sm" min="200" max="1000" step="50" value="300"
-                            aria-label="Reading speed">
+                        <input type="range" id="speedSlider" class="speed-slider-sm" min="200" max="1000" step="50"
+                            value="300" aria-label="Reading speed">
                         <span class="speed-label"><span id="speedValue">300</span> WPM</span>
                     </div>
                 </div>

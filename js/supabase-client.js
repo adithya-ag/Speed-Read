@@ -66,12 +66,73 @@ const SupabaseClient = {
     },
 
     /**
-     * Save Reading Progress (Example)
+     * Get All Documents for User
      */
-    async saveProgress(textId, wordIndex) {
+    async getDocuments() {
+        if (!this.client) return { error: 'Not initialized' };
+
+        const { data, error } = await this.client
+            .from('documents')
+            .select('*')
+            .order('last_read_at', { ascending: false });
+
+        return { data, error };
+    },
+
+    /**
+     * Save/Upload a new Document
+     */
+    async saveDocument(title, content) {
+        if (!this.user || !this.client) return { error: 'Not logged in' };
+
+        const { data, error } = await this.client
+            .from('documents')
+            .insert([
+                {
+                    user_id: this.user.id,
+                    title: title || 'Untitled',
+                    content: content,
+                    total_words: content.split(/\s+/).length, // simple count
+                    bookmark_index: 0
+                }
+            ])
+            .select()
+            .single();
+
+        return { data, error };
+    },
+
+    /**
+     * Save Reading Progress
+     * Debounced in App, but here handles the DB call
+     */
+    async saveProgress(docId, wordIndex, totalWords) {
+        if (!this.user || !this.client || !docId) return;
+
+        const { error } = await this.client
+            .from('documents')
+            .update({
+                bookmark_index: wordIndex,
+                last_read_at: new Date(),
+                total_words: totalWords
+            })
+            .eq('id', docId);
+
+        if (error) console.error('Error saving progress:', error);
+        return { error };
+    },
+
+    /**
+     * Delete a document
+     */
+    async deleteDocument(docId) {
         if (!this.user || !this.client) return;
 
-        // Implementation depends on DB Schema
-        // const { error } = await this.client.from('progress').upsert({ ... })
+        const { error } = await this.client
+            .from('documents')
+            .delete()
+            .eq('id', docId);
+
+        return { error };
     }
 };

@@ -7,7 +7,11 @@ class SpeedReaderApp {
     constructor() {
         // State
         this.reader = null;
+        // State
+        this.reader = null;
         this.words = [];
+        this.currentDocId = null;
+        this.progressSaveTimeout = null;
 
         // Double-tap tracking
         this._lastTap = 0;
@@ -26,6 +30,11 @@ class SpeedReaderApp {
         this.elements = {
             // Sections
             inputSection: document.getElementById('inputSection'),
+            // Sections
+            inputSection: document.getElementById('inputSection'),
+            librarySection: document.getElementById('librarySection'),
+            documentList: document.getElementById('documentList'),
+            refreshLibraryBtn: document.getElementById('refreshLibraryBtn'),
             readingSection: document.getElementById('readingSection'),
 
             // Input
@@ -128,10 +137,13 @@ class SpeedReaderApp {
         if (user) {
             authBtn.textContent = 'Sign Out';
             authBtn.title = `Signed in as ${user.email}`;
-            // Potential: Load user library here
+            this.elements.librarySection.classList.remove('hidden');
+            this.loadLibrary();
         } else {
             authBtn.textContent = 'Sign In';
-            authBtn.title = 'Sign is with Google';
+            authBtn.title = 'Sign in with Google';
+            this.elements.librarySection.classList.add('hidden');
+            this.currentDocId = null;
         }
     }
 
@@ -139,6 +151,11 @@ class SpeedReaderApp {
      * Setup all event listeners
      */
     setupEventListeners() {
+        // Library Controls
+        this.elements.refreshLibraryBtn.addEventListener('click', () => {
+            this.loadLibrary();
+        });
+
         // Input section
         this.elements.textInput.addEventListener('input', () => {
             this.updateCharCounter();
@@ -312,6 +329,20 @@ class SpeedReaderApp {
             this.updateCharCounter();
             this.elements.uploadStatus.textContent = `✓ Loaded ${words.length} words from ${file.name}`;
             this.elements.uploadStatus.style.color = 'var(--success-color)';
+
+            // Auto-save if logged in
+            if (SupabaseClient.user) {
+                this.elements.uploadStatus.textContent += ' (Saving...)';
+                const { data, error } = await SupabaseClient.saveDocument(file.name, text);
+                if (data) {
+                    this.currentDocId = data.id;
+                    this.elements.uploadStatus.textContent = `✓ Saved to Library`;
+                    this.loadLibrary(); // Refresh list associated
+                } else {
+                    console.error('Save failed:', error);
+                }
+            }
+
         } catch (error) {
             this.showError(error.message);
             this.elements.uploadStatus.textContent = `✗ ${error.message}`;
@@ -347,6 +378,10 @@ class SpeedReaderApp {
             },
             onProgress: (progress, current, total) => {
                 this.updateProgress(progress, current, total);
+                // Save progress to DB
+                if (this.currentDocId) {
+                    this.saveProgressDebounced(this.currentDocId, current, total);
+                }
             },
             onComplete: () => {
                 this.onReadingComplete();
@@ -785,6 +820,95 @@ class SpeedReaderApp {
         } catch (error) {
             console.error('Failed to save settings:', error);
         }
+    }
+
+    /**
+     * Load Library Documents
+     */
+    async loadLibrary() {
+        if (!SupabaseClient.user) return;
+
+        this.elements.documentList.innerHTML = '<div class="empty-state">Loading library...</div>';
+
+        const { data, error } = await SupabaseClient.getDocuments();
+
+        if (error) {
+            this.elements.documentList.innerHTML = `<div class="empty-state error">Error loading library</div>`;
+            return;
+        }
+
+        this.renderLibrary(data || []);
+    }
+
+    /**
+     * Render Library List
+     */
+    renderLibrary(documents) {
+        if (!documents || documents.length === 0) {
+            this.elements.documentList.innerHTML = '<div class="empty-state">No documents found. Upload one!</div>';
+            return;
+        }
+
+        this.elements.documentList.innerHTML = '';
+
+        documents.forEach(doc => {
+            const el = document.createElement('div');
+            el.className = 'doc-item';
+
+            const progress = doc.total_words > 0
+                ? Math.round((doc.bookmark_index / doc.total_words) * 100)
+                : 0;
+
+            el.innerHTML = `
+                <div class="doc-title">${doc.title || 'Untitled'}</div>
+                <div class="doc-meta">
+                    <span class="progress-badge">${progress}% Complete</span>
+                    <span>${new Date(doc.created_at).toLocaleDateString()}</span>
+                </div>
+            `;
+
+            el.addEventListener('click', () => {
+                this.openDocument(doc);
+            });
+
+            this.elements.documentList.appendChild(el);
+        });
+    }
+
+    /**
+     * Open a document from library
+     */
+    openDocument(doc) {
+        this.elements.textInput.value = doc.content;
+        this.updateCharCounter();
+        this.currentDocId = doc.id;
+
+        // Start reading immediately or just load? Let's just load.
+        // But maybe restore bookmark?
+        this.startReading();
+
+        // Restore bookmark after reader init
+        if (this.reader && doc.bookmark_index > 0) {
+            // Small delay to ensure reader is ready
+            setTimeout(() => {
+                this.reader.jumpToWord(doc.bookmark_index);
+                this.showSkipFeedback(`Resumed at word ${doc.bookmark_index}`);
+                this.pause(); // Start paused
+            }, 100);
+        }
+    }
+
+    /**
+     * Save Progress (Debounced)
+     */
+    saveProgressDebounced(docId, index, total) {
+        if (this.progressSaveTimeout) {
+            clearTimeout(this.progressSaveTimeout);
+        }
+
+        this.progressSaveTimeout = setTimeout(() => {
+            SupabaseClient.saveProgress(docId, index, total);
+        }, 2000); // Save every 2 seconds of inactivity or continuous reading
     }
 
     /**

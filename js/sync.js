@@ -7,18 +7,21 @@
 const SyncManager = {
     /**
      * Run full sync: migrate old data, pull remote, push local
+     * Returns list of remote docs that need re-upload on this device
      */
     async syncAll() {
-        if (!SupabaseClient.user || !SupabaseClient.client) return;
-        if (typeof DB === 'undefined' || !DB.db) return;
+        if (!SupabaseClient.user || !SupabaseClient.client) return [];
+        if (typeof DB === 'undefined' || !DB.db) return [];
 
         try {
             await this.migrateFromOldSchema();
-            await this.syncDocumentsDown();
+            const needsReupload = await this.syncDocumentsDown();
             await this.syncDocumentsUp();
             await this.syncStats();
+            return needsReupload;
         } catch (err) {
             console.error('Sync failed:', err);
+            return [];
         }
     },
 
@@ -82,10 +85,13 @@ const SyncManager = {
 
     /**
      * Pull documents from Supabase, merge with local
+     * Returns list of remote docs that need re-upload on this device
      */
     async syncDocumentsDown() {
         const { data: remoteDocs, error } = await SupabaseClient.getDocuments();
-        if (error || !remoteDocs) return;
+        if (error || !remoteDocs) return [];
+
+        const needsReupload = [];
 
         for (const rdoc of remoteDocs) {
             // Try to find local match by supabaseId first, then wordHash
@@ -106,10 +112,19 @@ const SyncManager = {
                     localDoc.lastReadAt = rdoc.last_read_at || localDoc.lastReadAt;
                 }
                 await DB.saveDocument(localDoc);
+            } else {
+                // Remote doc exists but no local content — user needs to re-upload
+                needsReupload.push({
+                    id: rdoc.id,
+                    title: rdoc.title,
+                    wordHash: rdoc.word_hash,
+                    bookmarkIndex: rdoc.bookmark_index || 0,
+                    totalWords: rdoc.total_words || 0
+                });
             }
-            // If no local match and no content in remote, it's a "needs re-upload" doc
-            // We skip it — user needs to re-upload the file on this device
         }
+
+        return needsReupload;
     },
 
     /**

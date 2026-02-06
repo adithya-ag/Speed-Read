@@ -10,6 +10,7 @@ class SpeedReaderApp {
         this.words = [];
         this.currentDocId = null;
         this.progressSaveTimeout = null;
+        this.pendingReupload = []; // Docs from other devices that need content re-upload
 
         // Double-tap tracking
         this._lastTap = 0;
@@ -153,12 +154,17 @@ class SpeedReaderApp {
             authBtn.title = `Signed in as ${user.email}`;
             // Sync with Supabase if available
             if (typeof SyncManager !== 'undefined') {
-                await SyncManager.syncAll();
+                const needsReupload = await SyncManager.syncAll();
+                this.pendingReupload = needsReupload || [];
+                if (needsReupload && needsReupload.length > 0) {
+                    this.showReuploadNotice(needsReupload);
+                }
             }
             this.loadLibrary(); // Refresh after sync
         } else {
             authBtn.textContent = 'Sign In';
             authBtn.title = 'Sign in with Google';
+            this.pendingReupload = [];
         }
     }
 
@@ -286,6 +292,12 @@ class SpeedReaderApp {
             });
         }
 
+        // Clear All Data
+        const clearAllBtn = document.getElementById('clearAllDataBtn');
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', () => this.clearAllLocalData());
+        }
+
         // Keyboard help modal
         this.elements.closeKeyboardHelpBtn.addEventListener('click', () => {
             this.closeKeyboardHelp();
@@ -382,25 +394,66 @@ class SpeedReaderApp {
             // Always save to local IndexedDB
             if (typeof DB !== 'undefined' && DB.db) {
                 const wordHash = await generateWordHash(text);
-                const doc = {
-                    id: crypto.randomUUID(),
-                    title: file.name,
-                    content: text,
-                    wordHash: wordHash,
-                    totalWords: words.length,
-                    bookmarkIndex: 0,
-                    source: 'upload',
-                    createdAt: new Date().toISOString(),
-                    lastReadAt: new Date().toISOString(),
-                    supabaseId: null
-                };
-                await DB.saveDocument(doc);
-                this.currentDocId = doc.id;
-                this.elements.uploadStatus.textContent = `✓ Saved to Library`;
 
-                // Sync metadata to Supabase if signed in
-                if (typeof SyncManager !== 'undefined' && SupabaseClient.user) {
-                    await SyncManager.syncDocument(doc);
+                // Check if this file matches a pending re-upload from another device
+                let restoredProgress = 0;
+                let matchedSupabaseId = null;
+                if (this.pendingReupload && this.pendingReupload.length > 0) {
+                    const match = this.pendingReupload.find(p => p.wordHash === wordHash);
+                    if (match) {
+                        restoredProgress = match.bookmarkIndex || 0;
+                        matchedSupabaseId = match.id;
+                        // Remove from pending list
+                        this.pendingReupload = this.pendingReupload.filter(p => p.wordHash !== wordHash);
+                    }
+                }
+
+                // Also check if doc already exists locally (re-upload of same file)
+                const existingDoc = await DB.getDocumentByHash(wordHash);
+                if (existingDoc) {
+                    // Update existing doc instead of creating new
+                    existingDoc.lastReadAt = new Date().toISOString();
+                    if (restoredProgress > existingDoc.bookmarkIndex) {
+                        existingDoc.bookmarkIndex = restoredProgress;
+                    }
+                    if (matchedSupabaseId && !existingDoc.supabaseId) {
+                        existingDoc.supabaseId = matchedSupabaseId;
+                    }
+                    await DB.saveDocument(existingDoc);
+                    this.currentDocId = existingDoc.id;
+
+                    if (existingDoc.bookmarkIndex > 0) {
+                        this.elements.uploadStatus.textContent = `✓ Found in Library (${Math.round((existingDoc.bookmarkIndex / existingDoc.totalWords) * 100)}% read)`;
+                    } else {
+                        this.elements.uploadStatus.textContent = `✓ Already in Library`;
+                    }
+                } else {
+                    // Create new doc
+                    const doc = {
+                        id: crypto.randomUUID(),
+                        title: file.name,
+                        content: text,
+                        wordHash: wordHash,
+                        totalWords: words.length,
+                        bookmarkIndex: restoredProgress,
+                        source: 'upload',
+                        createdAt: new Date().toISOString(),
+                        lastReadAt: new Date().toISOString(),
+                        supabaseId: matchedSupabaseId
+                    };
+                    await DB.saveDocument(doc);
+                    this.currentDocId = doc.id;
+
+                    if (restoredProgress > 0) {
+                        this.elements.uploadStatus.textContent = `✓ Saved + restored progress (${Math.round((restoredProgress / words.length) * 100)}%)`;
+                    } else {
+                        this.elements.uploadStatus.textContent = `✓ Saved to Library`;
+                    }
+
+                    // Sync metadata to Supabase if signed in (and not already linked)
+                    if (!matchedSupabaseId && typeof SyncManager !== 'undefined' && SupabaseClient.user) {
+                        await SyncManager.syncDocument(doc);
+                    }
                 }
 
                 this.loadLibrary();
@@ -968,22 +1021,38 @@ class SpeedReaderApp {
                 ? Math.round((doc.bookmarkIndex / doc.totalWords) * 100)
                 : 0;
 
-            el.innerHTML = `
-                <div class="doc-info">
-                    <div class="doc-title">${doc.title || 'Untitled'}</div>
-                    <div class="doc-meta">
-                        <span class="progress-badge">${progress}%</span>
-                        <span>${new Date(doc.createdAt).toLocaleDateString()}</span>
-                    </div>
-                </div>
-                <button class="doc-delete-btn" title="Delete document" aria-label="Delete ${doc.title}">&times;</button>
-            `;
+            // Build DOM safely to prevent XSS from malicious file names
+            const docInfo = document.createElement('div');
+            docInfo.className = 'doc-info';
 
-            el.querySelector('.doc-info').addEventListener('click', () => {
+            const docTitle = document.createElement('div');
+            docTitle.className = 'doc-title';
+            docTitle.textContent = doc.title || 'Untitled'; // Safe: textContent escapes HTML
+
+            const docMeta = document.createElement('div');
+            docMeta.className = 'doc-meta';
+            docMeta.innerHTML = `
+                <span class="progress-badge">${progress}%</span>
+                <span>${new Date(doc.createdAt).toLocaleDateString()}</span>
+            `; // Safe: no user input in this innerHTML
+
+            docInfo.appendChild(docTitle);
+            docInfo.appendChild(docMeta);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'doc-delete-btn';
+            deleteBtn.title = 'Delete document';
+            deleteBtn.setAttribute('aria-label', `Delete ${doc.title}`);
+            deleteBtn.innerHTML = '&times;';
+
+            el.appendChild(docInfo);
+            el.appendChild(deleteBtn);
+
+            docInfo.addEventListener('click', () => {
                 this.openDocument(doc);
             });
 
-            el.querySelector('.doc-delete-btn').addEventListener('click', (e) => {
+            deleteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.confirmDeleteDocument(doc);
             });
@@ -1174,6 +1243,41 @@ class SpeedReaderApp {
         });
     }
 
+    /**
+     * Show notice about documents that need re-uploading from another device
+     */
+    showReuploadNotice(docs) {
+        if (!docs || docs.length === 0) return;
+
+        // Remove existing notice if any
+        const existing = document.getElementById('reuploadNoticeBanner');
+        if (existing) existing.remove();
+
+        const banner = document.createElement('div');
+        banner.id = 'reuploadNoticeBanner';
+        banner.className = 'notice-banner sync-banner';
+
+        const docList = docs.map(d => {
+            const progress = d.totalWords > 0 ? Math.round((d.bookmarkIndex / d.totalWords) * 100) : 0;
+            return `<strong>${d.title}</strong> (${progress}% read)`;
+        }).join(', ');
+
+        banner.innerHTML = `
+            <div class="notice-content">
+                <strong>Sync:</strong> You have ${docs.length} document${docs.length > 1 ? 's' : ''} from another device:
+                ${docList}.
+                <br><em>Re-upload the same file${docs.length > 1 ? 's' : ''} to restore your progress.</em>
+            </div>
+            <button class="notice-close" aria-label="Close notice">&times;</button>
+        `;
+
+        this.elements.inputSection.prepend(banner);
+
+        banner.querySelector('.notice-close').addEventListener('click', () => {
+            banner.remove();
+        });
+    }
+
     // ========== STALE DOCUMENT CHECK ==========
 
     /**
@@ -1305,6 +1409,55 @@ class SpeedReaderApp {
         }
 
         e.target.value = ''; // Reset file input
+    }
+
+    /**
+     * Clear all local data (IndexedDB + localStorage)
+     */
+    async clearAllLocalData() {
+        const confirmed = await this.showConfirmDialog(
+            'Clear All Data',
+            'This will delete ALL your local documents, reading stats, and settings. This cannot be undone. Continue?'
+        );
+
+        if (!confirmed) return;
+
+        try {
+            // Clear IndexedDB
+            if (typeof DB !== 'undefined' && DB.db) {
+                const tx = DB.db.transaction(['documents', 'stats', 'meta'], 'readwrite');
+                await tx.objectStore('documents').clear();
+                await tx.objectStore('stats').clear();
+                await tx.objectStore('meta').clear();
+                await tx.done;
+            }
+
+            // Clear localStorage items
+            localStorage.removeItem('speedReaderSettings');
+            localStorage.removeItem('speedReader_migrated');
+            localStorage.removeItem('speedReader_crashBuffer');
+            localStorage.removeItem('speedReader_uploadNoticeDismissed');
+
+            // Reset app state
+            this.currentDocId = null;
+            this.settings = {
+                wpm: 300,
+                theme: 'light',
+                fontSize: 40,
+                showFocusGuide: false,
+                punctuationPause: 200
+            };
+            this.applySettings();
+            this.loadLibrary();
+            await this.refreshStats();
+
+            // Close settings modal
+            this.elements.settingsModal.classList.add('hidden');
+
+            this.showSkipFeedback('All local data cleared');
+        } catch (err) {
+            this.showError('Failed to clear data: ' + err.message);
+        }
     }
 
     /**

@@ -1540,6 +1540,15 @@ kbd {
     border-color: var(--error-color);
 }
 
+.sync-banner {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+[data-theme="dark"] .sync-banner {
+    background: rgba(59, 130, 246, 0.15);
+}
+
 /* ========== DATA MANAGEMENT ========== */
 
 .data-actions {

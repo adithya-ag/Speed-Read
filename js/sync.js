@@ -89,7 +89,18 @@ const SyncManager = {
      */
     async syncDocumentsDown() {
         const { data: remoteDocs, error } = await SupabaseClient.getDocuments();
-        if (error || !remoteDocs) return [];
+
+        if (error) {
+            console.error('Sync: Failed to fetch remote documents:', error);
+            return [];
+        }
+
+        if (!remoteDocs || remoteDocs.length === 0) {
+            console.log('Sync: No remote documents found');
+            return [];
+        }
+
+        console.log(`Sync: Found ${remoteDocs.length} remote document(s)`);
 
         const needsReupload = [];
 
@@ -133,6 +144,7 @@ const SyncManager = {
                     isGhost: true // Flag to identify ghost documents
                 };
                 await DB.saveDocument(ghostDoc);
+                console.log(`Sync: Created ghost document "${ghostDoc.title}" with ${ghostDoc.bookmarkIndex}/${ghostDoc.totalWords} progress`);
                 needsReupload.push({
                     id: rdoc.id,
                     title: rdoc.title,

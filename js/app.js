@@ -152,9 +152,13 @@ class SpeedReaderApp {
         if (user) {
             authBtn.textContent = 'Sign Out';
             authBtn.title = `Signed in as ${user.email}`;
+            console.log('Auth: Signed in as', user.email);
+
             // Sync with Supabase if available
             if (typeof SyncManager !== 'undefined') {
+                console.log('Auth: Starting sync...');
                 const needsReupload = await SyncManager.syncAll();
+                console.log('Auth: Sync complete, needsReupload:', needsReupload?.length || 0);
                 this.pendingReupload = needsReupload || [];
                 if (needsReupload && needsReupload.length > 0) {
                     this.showReuploadNotice(needsReupload);
@@ -162,6 +166,7 @@ class SpeedReaderApp {
             }
             this.loadLibrary(); // Refresh after sync
         } else {
+            console.log('Auth: Signed out');
             authBtn.textContent = 'Sign In';
             authBtn.title = 'Sign in with Google';
             this.pendingReupload = [];

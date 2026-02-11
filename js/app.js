@@ -1110,7 +1110,7 @@ class SpeedReaderApp {
     /**
      * Save progress immediately (for beforeunload/visibilitychange)
      */
-    saveProgressImmediate() {
+    async saveProgressImmediate() {
         if (!this.reader || !this.currentDocId) return;
 
         if (this.progressSaveTimeout) {
@@ -1118,18 +1118,29 @@ class SpeedReaderApp {
             this.progressSaveTimeout = null;
         }
 
+        const index = this.reader.currentIndex;
+        const total = this.words.length;
+
         // Stash in localStorage as crash buffer (sync-safe for beforeunload)
         const progressData = {
             docId: this.currentDocId,
-            index: this.reader.currentIndex,
-            total: this.words.length,
+            index: index,
+            total: total,
             timestamp: Date.now()
         };
         localStorage.setItem('speedReader_crashBuffer', JSON.stringify(progressData));
 
-        // Also try async save (may not complete on beforeunload)
+        // Save locally
         if (typeof DB !== 'undefined' && DB.db) {
-            DB.updateProgress(this.currentDocId, this.reader.currentIndex);
+            await DB.updateProgress(this.currentDocId, index);
+
+            // Also sync to Supabase if signed in
+            if (typeof SupabaseClient !== 'undefined' && SupabaseClient.user) {
+                const doc = await DB.getDocument(this.currentDocId);
+                if (doc && doc.supabaseId) {
+                    SupabaseClient.saveProgress(doc.supabaseId, index, total);
+                }
+            }
         }
     }
 

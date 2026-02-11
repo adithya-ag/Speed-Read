@@ -128,24 +128,32 @@ const SyncManager = {
     },
 
     /**
-     * Push local documents that aren't yet synced to Supabase
+     * Push local documents to Supabase (create new or update progress)
      */
     async syncDocumentsUp() {
         const localDocs = await DB.getAllDocuments();
 
         for (const doc of localDocs) {
-            if (doc.supabaseId) continue; // Already synced
+            if (doc.supabaseId) {
+                // Already synced — update progress if local is ahead
+                await SupabaseClient.saveProgress(
+                    doc.supabaseId,
+                    doc.bookmarkIndex,
+                    doc.totalWords
+                );
+            } else {
+                // Not synced yet — create new
+                const { data, error } = await SupabaseClient.saveDocument(
+                    doc.title,
+                    doc.wordHash,
+                    doc.totalWords,
+                    doc.bookmarkIndex
+                );
 
-            const { data, error } = await SupabaseClient.saveDocument(
-                doc.title,
-                doc.wordHash,
-                doc.totalWords,
-                doc.bookmarkIndex
-            );
-
-            if (data && !error) {
-                doc.supabaseId = data.id;
-                await DB.saveDocument(doc);
+                if (data && !error) {
+                    doc.supabaseId = data.id;
+                    await DB.saveDocument(doc);
+                }
             }
         }
     },

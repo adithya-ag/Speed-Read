@@ -111,9 +111,28 @@ const SyncManager = {
                     localDoc.bookmarkIndex = remoteIndex;
                     localDoc.lastReadAt = rdoc.last_read_at || localDoc.lastReadAt;
                 }
+                // If this was a ghost, convert it to a real doc (keep content if exists)
+                if (localDoc.isGhost) {
+                    delete localDoc.isGhost;
+                }
                 await DB.saveDocument(localDoc);
             } else {
-                // Remote doc exists but no local content — user needs to re-upload
+                // Remote doc exists but no local content — save as "ghost" document
+                // Ghost docs have metadata but no content, shown differently in library
+                const ghostDoc = {
+                    id: crypto.randomUUID(),
+                    title: rdoc.title || 'Untitled',
+                    content: '', // No content for ghost
+                    wordHash: rdoc.word_hash,
+                    totalWords: rdoc.total_words || 0,
+                    bookmarkIndex: rdoc.bookmark_index || 0,
+                    source: 'sync',
+                    createdAt: rdoc.created_at || new Date().toISOString(),
+                    lastReadAt: rdoc.last_read_at || new Date().toISOString(),
+                    supabaseId: rdoc.id,
+                    isGhost: true // Flag to identify ghost documents
+                };
+                await DB.saveDocument(ghostDoc);
                 needsReupload.push({
                     id: rdoc.id,
                     title: rdoc.title,

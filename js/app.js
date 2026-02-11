@@ -408,10 +408,13 @@ class SpeedReaderApp {
                     }
                 }
 
-                // Also check if doc already exists locally (re-upload of same file)
+                // Also check if doc already exists locally (re-upload of same file or ghost)
                 const existingDoc = await DB.getDocumentByHash(wordHash);
                 if (existingDoc) {
-                    // Update existing doc instead of creating new
+                    const wasGhost = existingDoc.isGhost;
+
+                    // Update existing doc with new content
+                    existingDoc.content = text;
                     existingDoc.lastReadAt = new Date().toISOString();
                     if (restoredProgress > existingDoc.bookmarkIndex) {
                         existingDoc.bookmarkIndex = restoredProgress;
@@ -419,10 +422,18 @@ class SpeedReaderApp {
                     if (matchedSupabaseId && !existingDoc.supabaseId) {
                         existingDoc.supabaseId = matchedSupabaseId;
                     }
+                    // Convert ghost to real document
+                    if (existingDoc.isGhost) {
+                        delete existingDoc.isGhost;
+                        existingDoc.source = 'upload';
+                    }
                     await DB.saveDocument(existingDoc);
                     this.currentDocId = existingDoc.id;
 
-                    if (existingDoc.bookmarkIndex > 0) {
+                    if (wasGhost) {
+                        // Ghost document is now restored with content
+                        this.elements.uploadStatus.textContent = `✓ Progress restored from cloud (${Math.round((existingDoc.bookmarkIndex / existingDoc.totalWords) * 100)}% read)`;
+                    } else if (existingDoc.bookmarkIndex > 0) {
                         this.elements.uploadStatus.textContent = `✓ Found in Library (${Math.round((existingDoc.bookmarkIndex / existingDoc.totalWords) * 100)}% read)`;
                     } else {
                         this.elements.uploadStatus.textContent = `✓ Already in Library`;
@@ -1015,7 +1026,7 @@ class SpeedReaderApp {
 
         documents.forEach(doc => {
             const el = document.createElement('div');
-            el.className = 'doc-item';
+            el.className = doc.isGhost ? 'doc-item doc-ghost' : 'doc-item';
 
             const progress = doc.totalWords > 0
                 ? Math.round((doc.bookmarkIndex / doc.totalWords) * 100)
@@ -1027,14 +1038,34 @@ class SpeedReaderApp {
 
             const docTitle = document.createElement('div');
             docTitle.className = 'doc-title';
-            docTitle.textContent = doc.title || 'Untitled'; // Safe: textContent escapes HTML
+
+            // Add cloud icon for ghost documents
+            if (doc.isGhost) {
+                const cloudIcon = document.createElement('span');
+                cloudIcon.className = 'ghost-icon';
+                cloudIcon.innerHTML = '&#9729;'; // Cloud icon
+                cloudIcon.title = 'Synced from another device';
+                docTitle.appendChild(cloudIcon);
+            }
+
+            const titleText = document.createTextNode(doc.title || 'Untitled');
+            docTitle.appendChild(titleText);
 
             const docMeta = document.createElement('div');
             docMeta.className = 'doc-meta';
-            docMeta.innerHTML = `
-                <span class="progress-badge">${progress}%</span>
-                <span>${new Date(doc.createdAt).toLocaleDateString()}</span>
-            `; // Safe: no user input in this innerHTML
+
+            if (doc.isGhost) {
+                // Ghost document: show progress and "upload to continue" hint
+                docMeta.innerHTML = `
+                    <span class="progress-badge ghost-badge">${progress}%</span>
+                    <span class="ghost-hint">Upload file to continue</span>
+                `; // Safe: no user input
+            } else {
+                docMeta.innerHTML = `
+                    <span class="progress-badge">${progress}%</span>
+                    <span>${new Date(doc.createdAt).toLocaleDateString()}</span>
+                `; // Safe: no user input in this innerHTML
+            }
 
             docInfo.appendChild(docTitle);
             docInfo.appendChild(docMeta);
@@ -1048,9 +1079,17 @@ class SpeedReaderApp {
             el.appendChild(docInfo);
             el.appendChild(deleteBtn);
 
-            docInfo.addEventListener('click', () => {
-                this.openDocument(doc);
-            });
+            if (doc.isGhost) {
+                // Ghost document: clicking prompts to upload
+                docInfo.addEventListener('click', () => {
+                    this.promptGhostUpload(doc);
+                });
+            } else {
+                // Normal document: open for reading
+                docInfo.addEventListener('click', () => {
+                    this.openDocument(doc);
+                });
+            }
 
             deleteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -1059,6 +1098,20 @@ class SpeedReaderApp {
 
             this.elements.documentList.appendChild(el);
         });
+    }
+
+    /**
+     * Prompt user to upload file for a ghost document
+     */
+    promptGhostUpload(ghostDoc) {
+        const progress = ghostDoc.totalWords > 0
+            ? Math.round((ghostDoc.bookmarkIndex / ghostDoc.totalWords) * 100)
+            : 0;
+
+        this.showSkipFeedback(`Upload "${ghostDoc.title}" to continue (${progress}% progress synced)`);
+
+        // Focus on file input area
+        this.elements.fileInput.click();
     }
 
     /**

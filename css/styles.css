@@ -1369,6 +1369,42 @@ kbd {
     background: rgba(239, 68, 68, 0.1);
 }
 
+/* Ghost Documents (synced from cloud, no local content) */
+.doc-item.doc-ghost {
+    opacity: 0.75;
+    border-style: dashed;
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, rgba(59, 130, 246, 0.05) 100%);
+}
+
+.doc-item.doc-ghost:hover {
+    border-color: #3b82f6;
+    opacity: 1;
+}
+
+.doc-ghost .doc-title {
+    color: var(--text-secondary);
+}
+
+.ghost-icon {
+    margin-right: 0.4rem;
+    color: #3b82f6;
+    font-size: 0.9em;
+}
+
+.ghost-hint {
+    color: #3b82f6;
+    font-style: italic;
+    font-size: 0.75rem;
+}
+
+.ghost-badge {
+    background: #3b82f6 !important;
+}
+
+[data-theme="dark"] .doc-item.doc-ghost {
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, rgba(59, 130, 246, 0.1) 100%);
+}
+
 .divider {
     text-align: center;
     margin: 1rem 0;

@@ -330,14 +330,63 @@
                 </div>
             </div>
         </div>
+
+        <!-- Update Available Banner -->
+        <div id="updateBanner" class="update-banner hidden">
+            <span>A new version is available!</span>
+            <button id="updateBtn" class="btn btn-primary btn-small">Update Now</button>
+            <button id="dismissUpdateBtn" class="update-dismiss" aria-label="Dismiss">&times;</button>
+        </div>
     </div>
 
     <!-- Service Worker Registration -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js')
-                .then(reg => console.log('SW registered:', reg.scope))
-                .catch(err => console.warn('SW registration failed:', err));
+            let refreshing = false;
+
+            // Reload page when new SW takes over
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (!refreshing) {
+                    refreshing = true;
+                    window.location.reload();
+                }
+            });
+
+            navigator.serviceWorker.register('/sw.js').then(reg => {
+                console.log('SW registered:', reg.scope);
+
+                // Check for updates on page load
+                reg.update();
+
+                // Listen for new service worker waiting
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // New version available, show update banner
+                            console.log('New version available!');
+                            document.getElementById('updateBanner').classList.remove('hidden');
+
+                            // Store reference to new worker for update button
+                            window.pendingServiceWorker = newWorker;
+                        }
+                    });
+                });
+
+                // Handle update button click
+                document.getElementById('updateBtn').addEventListener('click', () => {
+                    if (reg.waiting) {
+                        reg.waiting.postMessage('SKIP_WAITING');
+                    }
+                });
+
+                // Handle dismiss button
+                document.getElementById('dismissUpdateBtn').addEventListener('click', () => {
+                    document.getElementById('updateBanner').classList.add('hidden');
+                });
+
+            }).catch(err => console.warn('SW registration failed:', err));
         }
     </script>
 

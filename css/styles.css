@@ -1634,6 +1634,63 @@ kbd {
     }
 }
 
+/* Update Banner */
+.update-banner {
+    position: fixed;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--accent-color);
+    color: white;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    font-size: 0.9rem;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateX(-50%) translateY(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+.update-banner .btn-small {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    background: white;
+    color: var(--accent-color);
+    border: none;
+}
+
+.update-banner .btn-small:hover {
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.update-dismiss {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    opacity: 0.8;
+}
+
+.update-dismiss:hover {
+    opacity: 1;
+}
+
 /* Accessibility: Reduced motion */
 @media (prefers-reduced-motion: reduce) {
 

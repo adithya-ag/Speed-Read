@@ -1,4 +1,4 @@
-const CACHE_NAME = 'speed-reader-v1';
+const CACHE_NAME = 'speed-reader-v2';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -21,20 +21,29 @@ self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
     );
-    self.skipWaiting();
+    // Don't skip waiting - let the app control when to activate
 });
 
-// Activate: clean old caches
+// Activate: clean old caches and notify clients
 self.addEventListener('activate', (event) => {
     event.waitUntil(
         caches.keys().then(keys =>
             Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-        )
+        ).then(() => {
+            // Take control of all clients immediately
+            return self.clients.claim();
+        })
     );
-    self.clients.claim();
 });
 
-// Fetch: cache-first for app shell, network-only for API
+// Listen for skip waiting message from the app
+self.addEventListener('message', (event) => {
+    if (event.data === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+});
+
+// Fetch: stale-while-revalidate for app shell, network-only for API
 self.addEventListener('fetch', (event) => {
     // Network only for Supabase API calls
     if (event.request.url.includes('supabase.co')) {
@@ -48,14 +57,24 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    // Stale-while-revalidate for same-origin requests
     event.respondWith(
-        caches.match(event.request).then(cached => {
-            return cached || fetch(event.request).then(response => {
-                if (response.ok) {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                }
-                return response;
+        caches.open(CACHE_NAME).then(cache => {
+            return cache.match(event.request).then(cachedResponse => {
+                // Fetch fresh version in background
+                const fetchPromise = fetch(event.request).then(networkResponse => {
+                    // Only cache successful responses
+                    if (networkResponse.ok) {
+                        cache.put(event.request, networkResponse.clone());
+                    }
+                    return networkResponse;
+                }).catch(() => {
+                    // Network failed, return cached or nothing
+                    return cachedResponse;
+                });
+
+                // Return cached immediately, or wait for network
+                return cachedResponse || fetchPromise;
             });
         })
     );

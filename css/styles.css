@@ -1299,6 +1299,26 @@ kbd {
     font-size: 1.1rem;
 }
 
+.library-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.sync-btn {
+    font-size: 1rem;
+    transition: transform 0.3s ease;
+}
+
+.sync-btn.syncing {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .document-list {
     display: flex;
     flex-direction: column;

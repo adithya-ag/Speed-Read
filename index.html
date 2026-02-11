@@ -50,7 +50,10 @@
             <div id="librarySection" class="library-container">
                 <div class="library-header">
                     <h2>Your Library</h2>
-                    <button id="refreshLibraryBtn" class="icon-btn" title="Refresh">↻</button>
+                    <div class="library-actions">
+                        <button id="syncBtn" class="icon-btn sync-btn hidden" title="Sync with cloud">☁</button>
+                        <button id="refreshLibraryBtn" class="icon-btn" title="Refresh">↻</button>
+                    </div>
                 </div>
                 <div id="documentList" class="document-list">
                     <!-- Documents will be injected here -->

@@ -32,6 +32,7 @@ class SpeedReaderApp {
             librarySection: document.getElementById('librarySection'),
             documentList: document.getElementById('documentList'),
             refreshLibraryBtn: document.getElementById('refreshLibraryBtn'),
+            syncBtn: document.getElementById('syncBtn'),
             readingSection: document.getElementById('readingSection'),
 
             // Input
@@ -154,6 +155,9 @@ class SpeedReaderApp {
             authBtn.title = `Signed in as ${user.email}`;
             console.log('Auth: Signed in as', user.email);
 
+            // Show sync button when signed in
+            this.elements.syncBtn.classList.remove('hidden');
+
             // Sync with Supabase if available
             if (typeof SyncManager !== 'undefined') {
                 console.log('Auth: Starting sync...');
@@ -170,6 +174,9 @@ class SpeedReaderApp {
             authBtn.textContent = 'Sign In';
             authBtn.title = 'Sign in with Google';
             this.pendingReupload = [];
+
+            // Hide sync button when signed out
+            this.elements.syncBtn.classList.add('hidden');
         }
     }
 
@@ -180,6 +187,10 @@ class SpeedReaderApp {
         // Library Controls
         this.elements.refreshLibraryBtn.addEventListener('click', () => {
             this.loadLibrary();
+        });
+
+        this.elements.syncBtn.addEventListener('click', () => {
+            this.syncNow();
         });
 
         // Input section
@@ -1016,6 +1027,41 @@ class SpeedReaderApp {
 
         const documents = await DB.getAllDocuments();
         this.renderLibrary(documents);
+    }
+
+    /**
+     * Manual sync: trigger full sync with Supabase
+     */
+    async syncNow() {
+        if (typeof SyncManager === 'undefined' || !SupabaseClient.user) {
+            this.showSkipFeedback('Sign in to sync');
+            return;
+        }
+
+        // Visual feedback: spinning icon
+        this.elements.syncBtn.classList.add('syncing');
+        this.elements.syncBtn.disabled = true;
+
+        try {
+            console.log('Manual sync: Starting...');
+            const needsReupload = await SyncManager.syncAll();
+
+            this.pendingReupload = needsReupload || [];
+            if (needsReupload && needsReupload.length > 0) {
+                this.showReuploadNotice(needsReupload);
+            }
+
+            this.loadLibrary();
+            await this.refreshStats();
+            this.showSkipFeedback('Sync complete');
+            console.log('Manual sync: Complete');
+        } catch (err) {
+            console.error('Manual sync failed:', err);
+            this.showError('Sync failed: ' + err.message);
+        } finally {
+            this.elements.syncBtn.classList.remove('syncing');
+            this.elements.syncBtn.disabled = false;
+        }
     }
 
     /**

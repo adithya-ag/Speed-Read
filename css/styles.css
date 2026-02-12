@@ -1702,3 +1702,43 @@ kbd {
         transition-duration: 0.01ms !important;
     }
 }
+
+/* ==========================================
+   INPUT PAGE FOOTER
+   ========================================== */
+
+.input-footer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.5rem 1rem;
+    margin-top: auto;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.github-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    transition: var(--transition-fast);
+}
+
+.github-link:hover {
+    color: var(--text-primary);
+    background: var(--border-color);
+}
+
+.github-link svg {
+    flex-shrink: 0;
+}
+
+.license-text {
+    font-size: 0.7rem;
+    opacity: 0.7;
+}
